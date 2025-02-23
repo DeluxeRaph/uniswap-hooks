@@ -141,59 +141,32 @@ abstract contract BaseCustomCurve is BaseCustomAccounting {
     onlyPoolManager
     returns (bytes memory returnData)
 {
-    CallbackData memory data = abi.decode(rawData, (CallbackData));
+        CallbackData memory data = abi.decode(rawData, (CallbackData));
+        PoolKey memory key = poolKey;
 
-    // This section handles liquidity modifications (adding/removing) for both tokens in the pool
-    // The sign of data.amount0/1 determines if we're removing (-) or adding (+) liquidity
+        // Get liquidity modification deltas
+        (BalanceDelta callerDelta, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(key, data.params, "");
 
-    PoolKey memory _poolKey = poolKey;
+        // Handle each currency amount based on its sign
+        if (callerDelta.amount0() < 0) {
+            // If amount0 is negative, send tokens from the sender to the pool
+            key.currency0.settle(poolManager, data.sender, uint256(int256(-callerDelta.amount0())), false);
+        } else {
+            // If amount0 is positive, send tokens from the pool to the sender
+            key.currency0.take(poolManager, data.sender, uint256(int256(callerDelta.amount0())), false);
+        }
 
-    // Get liquidity modification deltas
-    (BalanceDelta delta, BalanceDelta feeDelta) = poolManager.modifyLiquidity(_poolKey, data.params, "");
+        if (callerDelta.amount1() < 0) {
+            // If amount1 is negative, send tokens from the sender to the pool
+            key.currency1.settle(poolManager, data.sender, uint256(int256(-callerDelta.amount1())), false);
+        } else {
+            // If amount1 is positive, send tokens from the pool to the sender
+            key.currency1.take(poolManager, data.sender, uint256(int256(callerDelta.amount1())), false);
+        }
 
-    // Debug logs to trace amounts and their signs
-    console.log("Delta amount0: ", int256(-delta.amount0()));
-    console.log("Delta amount1: ", int256(-delta.amount1()));
-
-    // Remove liquidity if amount0 is negative
-    if (-delta.amount0() < 0) {
-        console.log("Removing liquidity for currency0:", uint256(int256(delta.amount0())));
-        // Burns ERC-6909 tokens to receive tokens
-        _poolKey.currency0.settle(poolManager, address(this), uint256(int256(delta.amount0())), true);
-        // Sends tokens from the pool to the user
-        _poolKey.currency0.take(poolManager, data.sender, uint256(int256(delta.amount0())), false);
+        // Return both deltas so that slippage checks can be done on the principal delta
+        return abi.encode(callerDelta, feesAccrued);
     }
-
-    // Remove liquidity if amount1 is negative
-    if (-delta.amount1() < 0) {
-        console.log("Removing liquidity for currency1:", uint256(int256(delta.amount1())));
-        // Burns ERC-6909 tokens to receive tokens
-        _poolKey.currency1.settle(poolManager, address(this), uint256(int256(delta.amount1())), true);
-        // Sends tokens from the pool to the user
-        _poolKey.currency1.take(poolManager, data.sender, uint256(int256(delta.amount1())), false);
-    }
-
-    // Add liquidity if amount0 is positive
-    if (-delta.amount0() > 0) {
-        console.log("Adding liquidity for currency0:", uint256(int256(-delta.amount0())));
-        // First settle (send) tokens from user to pool
-        _poolKey.currency0.settle(poolManager, data.sender, uint256(int256(-delta.amount0())), false);
-        // Take (mint) ERC-6909 tokens to be received by this hook
-        _poolKey.currency0.take(poolManager, address(this), uint256(int256(-delta.amount0())), false);
-    }
-
-    // Add liquidity if amount1 is positive
-    if (-delta.amount1() > 0) {
-        console.log("Adding liquidity for currency1:", uint256(int256(-delta.amount1())));
-        // First settle (send) tokens from user to pool
-        _poolKey.currency1.settle(poolManager, data.sender, uint256(int256(-delta.amount1())), false);
-        // Take (mint) ERC-6909 tokens to be received by this hook
-        _poolKey.currency1.take(poolManager, address(this), uint256(int256(-delta.amount1())), false);
-    }
-
-    // Return the modified liquidity and fees accrued
-    return abi.encode(delta, feeDelta);
-}
 
 
     /**
