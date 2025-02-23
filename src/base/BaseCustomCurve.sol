@@ -13,6 +13,8 @@ import {CurrencySettler} from "src/utils/CurrencySettler.sol";
 import {BeforeSwapDelta, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {BalanceDelta, toBalanceDelta, BalanceDeltaLibrary} from "v4-core/src/types/BalanceDelta.sol";
 
+import "forge-std/console.sol";
+
 /**
  * @dev Base implementation for custom curves, inheriting from {BaseCustomAccounting}.
  *
@@ -38,20 +40,6 @@ abstract contract BaseCustomCurve is BaseCustomAccounting {
      * @dev Set the pool `PoolManager` address.
      */
     constructor(IPoolManager _poolManager) BaseCustomAccounting(_poolManager) {}
-
-    /**
-     * @dev Defines how the liquidity modification data is encoded and returned
-     * for an add liquidity request.
-     */
-    function _getAddLiquidity(uint160, AddLiquidityParams memory params)
-        internal
-        virtual
-        override
-        returns (bytes memory, uint256)
-    {
-        (uint256 amount0, uint256 amount1, uint256 shares) = _getAmountIn(params);
-        return (abi.encode(amount0.toInt128(), amount1.toInt128()), shares);
-    }
 
     /**
      * @dev Defines how the liquidity modification data is encoded and returned
@@ -147,59 +135,66 @@ abstract contract BaseCustomCurve is BaseCustomAccounting {
      * @return returnData The encoded caller and fees accrued deltas.
      */
     function unlockCallback(bytes calldata rawData)
-        external
-        virtual
-        override
-        onlyPoolManager
-        returns (bytes memory returnData)
-    {
-        CallbackData memory data = abi.decode(rawData, (CallbackData));
+    external
+    virtual
+    override
+    onlyPoolManager
+    returns (bytes memory returnData)
+{
+    CallbackData memory data = abi.decode(rawData, (CallbackData));
 
-        // This section handles liquidity modifications (adding/removing) for both tokens in the pool
-        // The sign of data.amount0/1 determines if we're removing (-) or adding (+) liquidity
+    // This section handles liquidity modifications (adding/removing) for both tokens in the pool
+    // The sign of data.amount0/1 determines if we're removing (-) or adding (+) liquidity
 
-        PoolKey memory _poolKey = poolKey;
+    PoolKey memory _poolKey = poolKey;
 
-        // Get liquidity modification deltas
-        (BalanceDelta delta, BalanceDelta feeDelta) = poolManager.modifyLiquidity(_poolKey, data.params, "");
+    // Get liquidity modification deltas
+    (BalanceDelta delta, BalanceDelta feeDelta) = poolManager.modifyLiquidity(_poolKey, data.params, "");
 
-        // Get the releveant delta by substracting the fee delta from the principal delta (-= is not supported)
-        delta = delta - feeDelta;
+    // Debug logs to trace amounts and their signs
+    console.log("Delta amount0: ", int256(-delta.amount0()));
+    console.log("Delta amount1: ", int256(-delta.amount1()));
 
-        // Remove liquidity if amount0 is negative
-        if (delta.amount0() < 0) {
-            // Burns ERC-6909 tokens to receive tokens
-            _poolKey.currency0.settle(poolManager, address(this), uint256(int256(-delta.amount0())), true);
-            // Sends tokens from the pool to the user
-            _poolKey.currency0.take(poolManager, data.sender, uint256(int256(-delta.amount0())), false);
-        }
-
-        // Remove liquidity if amount1 is negative
-        if (delta.amount1() < 0) {
-            // Burns ERC-6909 tokens to receive tokens
-            _poolKey.currency1.settle(poolManager, address(this), uint256(int256(-delta.amount1())), true);
-            // Sends tokens from the pool to the user
-            _poolKey.currency1.take(poolManager, data.sender, uint256(int256(-delta.amount1())), false);
-        }
-
-        // Add liquidity if amount0 is positive
-        if (delta.amount0() > 0) {
-            // First settle (send) tokens from user to pool
-            _poolKey.currency0.settle(poolManager, data.sender, uint256(int256(delta.amount0())), false);
-            // Take (mint) ERC-6909 tokens to be received by this hook
-            _poolKey.currency0.take(poolManager, address(this), uint256(int256(delta.amount0())), true);
-        }
-
-        // Add liquidity if amount1 is positive
-        if (delta.amount1() > 0) {
-            // First settle (send) tokens from user to pool
-            _poolKey.currency1.settle(poolManager, data.sender, uint256(int256(delta.amount1())), false);
-            // Take (mint) ERC-6909 tokens to be received by this hook
-            _poolKey.currency1.take(poolManager, address(this), uint256(int256(delta.amount1())), true);
-        }
-
-        return abi.encode(delta);
+    // Remove liquidity if amount0 is negative
+    if (-delta.amount0() < 0) {
+        console.log("Removing liquidity for currency0:", uint256(int256(delta.amount0())));
+        // Burns ERC-6909 tokens to receive tokens
+        _poolKey.currency0.settle(poolManager, address(this), uint256(int256(delta.amount0())), true);
+        // Sends tokens from the pool to the user
+        _poolKey.currency0.take(poolManager, data.sender, uint256(int256(delta.amount0())), false);
     }
+
+    // Remove liquidity if amount1 is negative
+    if (-delta.amount1() < 0) {
+        console.log("Removing liquidity for currency1:", uint256(int256(delta.amount1())));
+        // Burns ERC-6909 tokens to receive tokens
+        _poolKey.currency1.settle(poolManager, address(this), uint256(int256(delta.amount1())), true);
+        // Sends tokens from the pool to the user
+        _poolKey.currency1.take(poolManager, data.sender, uint256(int256(delta.amount1())), false);
+    }
+
+    // Add liquidity if amount0 is positive
+    if (-delta.amount0() > 0) {
+        console.log("Adding liquidity for currency0:", uint256(int256(-delta.amount0())));
+        // First settle (send) tokens from user to pool
+        _poolKey.currency0.settle(poolManager, data.sender, uint256(int256(-delta.amount0())), false);
+        // Take (mint) ERC-6909 tokens to be received by this hook
+        _poolKey.currency0.take(poolManager, address(this), uint256(int256(-delta.amount0())), false);
+    }
+
+    // Add liquidity if amount1 is positive
+    if (-delta.amount1() > 0) {
+        console.log("Adding liquidity for currency1:", uint256(int256(-delta.amount1())));
+        // First settle (send) tokens from user to pool
+        _poolKey.currency1.settle(poolManager, data.sender, uint256(int256(-delta.amount1())), false);
+        // Take (mint) ERC-6909 tokens to be received by this hook
+        _poolKey.currency1.take(poolManager, address(this), uint256(int256(-delta.amount1())), false);
+    }
+
+    // Return the modified liquidity and fees accrued
+    return abi.encode(delta, feeDelta);
+}
+
 
     /**
      * @dev Calculate the amount of the unspecified currency to be taken or settled from the swapper, depending on the swap

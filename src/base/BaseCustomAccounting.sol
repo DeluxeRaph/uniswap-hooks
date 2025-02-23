@@ -13,6 +13,9 @@ import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
+import "forge-std/console.sol";
+
+
 /**
  * @dev Base implementation for custom accounting and hook-owned liquidity.
  *
@@ -150,18 +153,20 @@ abstract contract BaseCustomAccounting is BaseHook, IUnlockCallback {
         // Get the liquidity modification parameters and the amount of liquidity shares to mint
         (bytes memory modifyParams, uint256 shares) = _getAddLiquidity(sqrtPriceX96, params);
 
-        // Apply the liquidity modification
+        // Apply the liquidity modification using callerDelta directly
         (BalanceDelta callerDelta, BalanceDelta feesAccrued) = _modifyLiquidity(modifyParams);
+
+        // Calculate the principal delta only once here (excluding fees)
+        delta = callerDelta - feesAccrued;
+
+        // Perform slippage check using principal delta
+        uint128 amount0 = uint128(-delta.amount0());
+        uint128 amount1 = uint128(-delta.amount1());
 
         // Mint the liquidity shares to the `params.to` address
         _mint(params, callerDelta, feesAccrued, shares);
 
-        // Get the principal delta by subtracting the fee delta from the caller delta (-= is not supported)
-        delta = callerDelta - feesAccrued;
-
-        // Check for slippage
-        uint128 amount0 = uint128(-delta.amount0());
-        if (amount0 < params.amount0Min || uint128(-delta.amount1()) < params.amount1Min) {
+        if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
             revert TooMuchSlippage();
         }
 
@@ -195,17 +200,21 @@ abstract contract BaseCustomAccounting is BaseHook, IUnlockCallback {
         // Get the liquidity modification parameters and the amount of liquidity shares to burn
         (bytes memory modifyParams, uint256 shares) = _getRemoveLiquidity(params);
 
-        // Apply the liquidity modification
+        // Apply the liquidity modification using callerDelta directly
         (BalanceDelta callerDelta, BalanceDelta feesAccrued) = _modifyLiquidity(modifyParams);
+
+        // Calculate the principal delta only once here (excluding fees)
+        delta = callerDelta - feesAccrued;
+
+        // Perform slippage check using principal delta
+        uint128 amount0 = uint128(-delta.amount0());
+        uint128 amount1 = uint128(-delta.amount1());
 
         // Burn the liquidity shares from the sender
         _burn(params, callerDelta, feesAccrued, shares);
 
-        // Get the principal delta by subtracting the fee delta from the caller delta (-= is not supported)
-        delta = callerDelta - feesAccrued;
-
         // Check for slippage
-        if (uint128(delta.amount0()) < params.amount0Min || uint128(delta.amount1()) < params.amount1Min) {
+        if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
             revert TooMuchSlippage();
         }
     }
