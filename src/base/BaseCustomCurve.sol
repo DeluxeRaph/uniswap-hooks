@@ -42,20 +42,6 @@ abstract contract BaseCustomCurve is BaseCustomAccounting {
     constructor(IPoolManager _poolManager) BaseCustomAccounting(_poolManager) {}
 
     /**
-     * @dev Defines how the liquidity modification data is encoded and returned
-     * for a remove liquidity request.
-     */
-    function _getRemoveLiquidity(RemoveLiquidityParams memory params)
-        internal
-        virtual
-        override
-        returns (bytes memory, uint256)
-    {
-        (uint256 amount0, uint256 amount1, uint256 shares) = _getAmountOut(params);
-        return (abi.encode(-amount0.toInt128(), -amount1.toInt128()), shares);
-    }
-
-    /**
      * @dev Overides the default swap logic of the `PoolManager` and calls the {_getUnspecifiedAmount}
      * to get the amount of tokens to be sent to the receiver.
      *
@@ -148,20 +134,16 @@ abstract contract BaseCustomCurve is BaseCustomAccounting {
         (BalanceDelta callerDelta, BalanceDelta feesAccrued) = poolManager.modifyLiquidity(key, data.params, "");
 
         // Handle each currency amount based on its sign
-        if (callerDelta.amount0() < 0) {
-            // If amount0 is negative, send tokens from the sender to the pool
-            key.currency0.settle(poolManager, data.sender, uint256(int256(-callerDelta.amount0())), false);
+        if (callerDelta.amount0() < 0) { // callerDelta -10000000000000000000
+            key.currency0.settle(poolManager, data.sender, uint256(int256(-callerDelta.amount0())), false); // -callerDelta 10000000000000000000
         } else {
-            // If amount0 is positive, send tokens from the pool to the sender
-            key.currency0.take(poolManager, data.sender, uint256(int256(callerDelta.amount0())), false);
+            key.currency0.take(poolManager, data.sender, uint256(int256(callerDelta.amount0())), true); // 
         }
 
         if (callerDelta.amount1() < 0) {
-            // If amount1 is negative, send tokens from the sender to the pool
             key.currency1.settle(poolManager, data.sender, uint256(int256(-callerDelta.amount1())), false);
         } else {
-            // If amount1 is positive, send tokens from the pool to the sender
-            key.currency1.take(poolManager, data.sender, uint256(int256(callerDelta.amount1())), false);
+            key.currency1.take(poolManager, data.sender, uint256(int256(callerDelta.amount1())), true);
         }
 
         // Return both deltas so that slippage checks can be done on the principal delta

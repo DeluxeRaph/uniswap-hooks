@@ -318,7 +318,7 @@ abstract contract BaseCustomAccounting is BaseHook, IUnlockCallback {
     }
 
     /**
-     * @dev Get the liquidity modification to apply for a given liquidity addition,
+     * @dev Get the liquidity modification mto apply for a given liquidity addition,
      * and the amount of liquidity shares would be minted to the sender.
      *
      * @param sqrtPriceX96 The current square root price of the pool.

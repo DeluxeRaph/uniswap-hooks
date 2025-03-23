@@ -15,6 +15,8 @@ import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol"
 import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 
+import "forge-std/console.sol";
+
 contract BaseCustomCurveMock is BaseCustomCurve, ERC20 {
     constructor(IPoolManager _manager) BaseCustomCurve(_manager) ERC20("Mock", "MOCK") {}
     using SafeCast for uint256;
@@ -65,7 +67,7 @@ contract BaseCustomCurveMock is BaseCustomCurve, ERC20 {
         override
         returns (bytes memory modify, uint256 liquidity)
     {
-        // Find total liquidity corresponding to the amounts
+        // Total liquidity recviced
         liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtPriceX96,
             TickMath.getSqrtPriceAtTick(params.tickLower),
@@ -87,45 +89,26 @@ contract BaseCustomCurveMock is BaseCustomCurve, ERC20 {
         );
     }
 
-    // /**
-    //  * @notice Removes liquidity from the hook's pool.
-    //  *
-    //  * @dev `msg.sender` should have already given the hook allowance of at least liquidity on the pool.
-    //  *
-    //  * NOTE: The `amount0Min` and `amount1Min` parameters are relative to the principal delta, which
-    //  * excludes fees accrued from the liquidity modification delta.
-    //  *
-    //  * @param params The parameters for the liquidity removal.
-    //  * @return delta The principal delta of the liquidity removal.
-    //  */
-    // function removeLiquidity(RemoveLiquidityParams calldata params)
-    //     external
-    //     virtual
-    //     override
-    //     ensure(params.deadline)
-    //     returns (BalanceDelta delta)
-    // {
-    //     (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+   function _getRemoveLiquidity(RemoveLiquidityParams memory params)
+        internal
+        view
+        override
+        returns (bytes memory, uint256 liquidity)
+    {
+        liquidity = FullMath.mulDiv(params.liquidity, poolManager.getLiquidity(poolKey.toId()), totalSupply());
 
-    //     if (sqrtPriceX96 == 0) revert PoolNotInitialized();
-
-    //     // Get the liquidity modification parameters and the amount of liquidity shares to burn
-    //     (bytes memory modifyParams, uint256 shares) = _getRemoveLiquidity(params);
-
-    //     // Apply the liquidity modification
-    //     (BalanceDelta callerDelta, BalanceDelta feesAccrued) = _modifyLiquidity(modifyParams);
-
-    //     // Burn the liquidity shares from the sender
-    //     _burn(params, callerDelta, feesAccrued, shares);
-
-    //     // Get the principal delta by subtracting the fee delta from the caller delta (-= is not supported)
-    //     delta = callerDelta - feesAccrued;
-
-    //     // Check for slippage
-    //     if (uint128(delta.amount0()) < params.amount0Min || uint128(delta.amount1()) < params.amount1Min) {
-    //         revert TooMuchSlippage();
-    //     }
-    // }
+        return (
+            abi.encode(
+                IPoolManager.ModifyLiquidityParams({
+                    tickLower: params.tickLower,
+                    tickUpper: params.tickUpper,
+                    liquidityDelta: -liquidity.toInt256(),
+                    salt: 0
+                })
+            ),
+            liquidity
+        );
+    }
 
     function _getAmountIn(AddLiquidityParams memory params)
         internal
